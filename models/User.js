@@ -9,10 +9,17 @@ const userSchema = new mongoose.Schema({
     virtualBalance: { type: Number, default: 100000 },
 
     // Track current holdings for the Leaderboard & Interlocks
-    portfolio: [{
+    portfolioHoldings: [{
         ticker: { type: String, required: true },
-        quantity: { type: Number, required: true },
-        averagePrice: { type: Number, required: true }
+        sharesOwned: { type: Number, required: true },
+        averageBuyPrice: { type: Number, required: true }
+    }],
+
+    // Legacy: kept for backward compatibility during migration
+    portfolio: [{
+        ticker: { type: String },
+        quantity: { type: Number },
+        averagePrice: { type: Number }
     }],
 
     // Track system status (e.g., if an interlock triggered a freeze)
