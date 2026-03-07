@@ -22,7 +22,7 @@
 ## 🚀 Live Demo
 
 **[stocks-iota-dusky.vercel.app](https://stocks-iota-dusky.vercel.app)**
-
+Landing page : https://open-kappa-two.vercel.app/
 ---
 
 ## 📖 What is Labh?
