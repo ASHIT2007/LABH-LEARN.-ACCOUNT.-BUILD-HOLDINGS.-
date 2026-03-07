@@ -696,14 +696,14 @@ app.get('/api/interlocks', async (req, res) => {
 });
 
 // Feature 2: Background Cron Job for Interlock Evaluation
-// Vercel Cron will hit this endpoint every 5 minutes
+// GitHub Actions will hit this endpoint every 5 minutes
 app.get('/api/cron/interlocks', async (req, res) => {
     console.log('⏰ [Cron] Running Interlock portfolio evaluations...');
     if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: "Database not connected" });
 
-    // Optional: Protect this route if you have a CRON_SECRET configured on Vercel
+    // CRON_SECRET protection for Vercel/GitHub Actions
     const authHeader = req.headers.authorization;
-    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}` && authHeader !== process.env.CRON_SECRET) {
         return res.status(401).json({ error: "Unauthorized" });
     }
 
