@@ -22,11 +22,29 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
+// Force serverless functions to establish/wait for DB connection before hitting any route
+app.use(async (req, res, next) => {
+    await connectDB();
+    next();
+});
+
 // ─── Initialize MongoDB ───
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/labh';
-mongoose.connect(MONGODB_URI)
-    .then(() => console.log('✅ Connected to MongoDB (Vibe Engine v2 active)'))
-    .catch(err => console.error('❌ MongoDB Connection Error:', err));
+let isDbConnected = false;
+
+const connectDB = async () => {
+    if (mongoose.connection.readyState === 1 || isDbConnected) return;
+    try {
+        await mongoose.connect(MONGODB_URI);
+        isDbConnected = true;
+        console.log('✅ Connected to MongoDB synchronously for Serverless Request');
+    } catch (err) {
+        console.error('❌ MongoDB Connection Error:', err);
+    }
+};
+
+// Initiate background connection
+mongoose.connect(MONGODB_URI).then(() => { isDbConnected = true; }).catch(console.error);
 
 // ─── Initialize Groq ───
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
