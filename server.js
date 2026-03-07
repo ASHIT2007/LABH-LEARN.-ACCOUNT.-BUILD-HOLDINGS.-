@@ -310,6 +310,12 @@ app.get('/api/sentiment/live', (req, res) => {
 
 // ─── POST /api/sentiment/refresh ───
 app.post('/api/sentiment/refresh', async (req, res) => {
+    // CRON_SECRET protection for Vercel/GitHub Actions
+    const authHeader = req.headers.authorization;
+    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}` && authHeader !== process.env.CRON_SECRET) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     try {
         await fetchAndAnalyzeNews();
         res.json({ success: true, data: latestLiveSentiment });
