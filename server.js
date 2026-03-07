@@ -155,6 +155,170 @@ app.post('/api/vibe-trade', async (req, res) => {
     }
 });
 
+// ─── POST /api/sentiment/analyze ───
+app.post('/api/sentiment/analyze', async (req, res) => {
+    try {
+        if (!ai) return res.status(503).json({ error: 'Groq not configured. Add GROQ_API_KEY.' });
+
+        const { text } = req.body;
+        if (!text || typeof text !== 'string' || !text.trim()) {
+            return res.status(400).json({ error: 'Text payload is required.' });
+        }
+
+        const prompt = `Analyze the provided financial text and return a strict JSON object.
+Required Fields:
+- "sentiment_score": Float between -1.0 (Extreme Fear) and 1.0 (Extreme Greed).
+- "signal": String: 'BULLISH', 'BEARISH', or 'NEUTRAL'.
+- "confidence": Percentage of how certain you are based on the data.
+- "reasoning": A one-sentence explanation of why you gave this score.
+
+Text to analyze: "${text.substring(0, 3000)}"
+
+DO NOT include markdown formatting (\`\`\`json) outside the braces, just return raw JSON text.`;
+
+        const response = await ai.chat.completions.create({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 300
+        });
+
+        let jsonStr = response.choices[0].message.content.trim();
+        if (jsonStr.startsWith('```json')) jsonStr = jsonStr.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        else if (jsonStr.startsWith('```')) jsonStr = jsonStr.replace(/^```\s*/, '').replace(/\s*```$/, '');
+
+        const parsedData = JSON.parse(jsonStr);
+        res.json(parsedData);
+    } catch (err) {
+        console.error('❌ Sentiment Analyze error:', err);
+        res.status(500).json({ error: 'Failed to analyze sentiment.' });
+    }
+});
+
+// ─── POST /api/forecast ───
+app.post('/api/forecast', async (req, res) => {
+    try {
+        if (!ai) return res.status(503).json({ error: 'Groq not configured. Add GROQ_API_KEY.' });
+
+        const { pricesStr } = req.body;
+        if (!pricesStr || typeof pricesStr !== 'string') {
+            return res.status(400).json({ error: 'Comma-separated prices string is required.' });
+        }
+
+        const prompt = `Based on these 20 price points, predict the next 5 points using technical analysis patterns (Mean Reversion or Momentum). Return ONLY a JSON array of 5 numbers.
+
+Prices: ${pricesStr}
+
+DO NOT include markdown formatting (\`\`\`json) outside the braces, just return raw JSON text (e.g. [1.2, 1.3, 1.4, 1.5, 1.6]).`;
+
+        const response = await ai.chat.completions.create({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{ role: 'system', content: prompt }],
+            max_tokens: 150
+        });
+
+        let jsonStr = response.choices[0].message.content.trim();
+        if (jsonStr.startsWith('```json')) jsonStr = jsonStr.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        else if (jsonStr.startsWith('```')) jsonStr = jsonStr.replace(/^```\s*/, '').replace(/\s*```$/, '');
+
+        const parsedData = JSON.parse(jsonStr);
+        if (!Array.isArray(parsedData) || parsedData.length !== 5) {
+            throw new Error("Invalid format returned by LLM");
+        }
+        res.json(parsedData);
+    } catch (err) {
+        console.error('❌ Forecast logic error:', err);
+        res.status(500).json({ error: 'Failed to generate forecast.' });
+    }
+});
+
+
+// ─── BACKGROUND NEWS SCRAPER & SENTIMENT ───
+let latestLiveSentiment = null;
+
+async function fetchAndAnalyzeNews() {
+    try {
+        if (!ai) return; // Do nothing if no Groq setup
+        console.log(`[Autonomous] Fetching live financial news...`);
+        // Fetch from Google News (Broad Indian Market)
+        const rssRes = await fetch('https://news.google.com/rss/search?q=HDFC+Bank+OR+Infosys+OR+TCS+OR+Reliance+OR+Tata+Motors+OR+SBI+OR+ICICI+Bank+when:1d&hl=en-IN&gl=IN&ceid=IN:en');
+        if (!rssRes.ok) throw new Error("Failed to fetch Google News RSS");
+        const rssText = await rssRes.text();
+
+        // Very basic XML extraction using Regex (to avoid huge parser deps)
+        const titleMatches = Array.from(rssText.matchAll(/<title>(?!Google News)(.*?)<\/title>/g)).slice(0, 15);
+        const headlines = titleMatches.map(m => m[1].replace(/&apos;/g, "'").replace(/&amp;/g, "&").replace(/&quot;/g, '"'));
+
+        if (headlines.length === 0) {
+            console.log(`[Autonomous] No news found to analyze.`);
+            return;
+        }
+
+        console.log(`[Autonomous] Extracted ${headlines.length} headlines. Analyzing...`);
+        const prompt = `Analyze these ${headlines.length} recent financial headlines related to the Indian Stock Market and return a strict JSON object structure.
+Required JSON format:
+{
+  "aggregate": {
+    "sentiment_score": 0.5, // Float between -1.0 (Extreme Fear) and 1.0 (Extreme Greed)
+    "signal": "BULLISH", // 'BULLISH', 'BEARISH', or 'NEUTRAL'
+    "confidence": 80, // Percentage INT
+    "reasoning": "A comprehensive one or two sentence summary explaining the aggregate score."
+  },
+  "news_items": [
+    {
+      "headline": "The original headline",
+      "related_stock": "The specific company or stock mentioned (e.g. HDFC Bank), or 'Market' if general",
+      "signal": "BULLISH", // 'BULLISH', 'BEARISH', or 'NEUTRAL'
+      "sentiment_score": 0.5 // Float between -1.0 and 1.0
+    }
+  ]
+}
+Note: Return ALL ${headlines.length} items in the news_items array.
+
+Headlines:
+${headlines.map((h, i) => `${i + 1}. ${h}`).join('\n')}
+
+DO NOT include markdown formatting (\`\`\`json) outside the braces, just return raw JSON text.`;
+
+        const response = await ai.chat.completions.create({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 2000
+        });
+
+        let jsonStr = response.choices[0].message.content.trim();
+        if (jsonStr.startsWith('```json')) jsonStr = jsonStr.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        else if (jsonStr.startsWith('```')) jsonStr = jsonStr.replace(/^```\s*/, '').replace(/\s*```$/, '');
+
+        const parsedData = JSON.parse(jsonStr);
+        latestLiveSentiment = { ...parsedData, timestamp: new Date(), headlinesScanned: headlines.length };
+        console.log(`[Autonomous] Sentiment updated: ${parsedData.aggregate.signal} (${parsedData.aggregate.sentiment_score})`);
+    } catch (err) {
+        console.error('❌ Autonomous News Analysis error:', err.message);
+    }
+}
+
+// Start loop natively on server start (run immediately, then every 15 min)
+if (ai) {
+    fetchAndAnalyzeNews(); // initial run
+    setInterval(fetchAndAnalyzeNews, 15 * 60 * 1000);
+}
+
+// ─── GET /api/sentiment/live ───
+app.get('/api/sentiment/live', (req, res) => {
+    res.json(latestLiveSentiment || { status: 'initializing', message: 'Engine is booting up and analyzing live feeds...' });
+});
+
+// ─── POST /api/sentiment/refresh ───
+app.post('/api/sentiment/refresh', async (req, res) => {
+    try {
+        await fetchAndAnalyzeNews();
+        res.json({ success: true, data: latestLiveSentiment });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to refresh news.' });
+    }
+});
+
+
 // ─── Health Check ───
 app.get('/api/health', (req, res) => {
     res.json({
