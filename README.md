@@ -21,7 +21,7 @@
 
 ## 🚀 Live Demo
 
-**[stocks-iota-dusky.vercel.app](https://stocks-iota-dusky.vercel.app)**
+App link :**[stocks-iota-dusky.vercel.app](https://stocks-iota-dusky.vercel.app)**
 <p>Landing page : https://open-kappa-two.vercel.app/</p>
 ---
 
